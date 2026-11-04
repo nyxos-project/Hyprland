@@ -495,6 +495,7 @@ std::vector<SP<IValue>> Values::getConfigValues() {
         MS<Int>("gestures:workspace_swipe_direction_lock_threshold", "in px, the distance to swipe before direction lock activates.", 10, {.min = 0, .max = 200}),
         MS<Bool>("gestures:workspace_swipe_forever", "if enabled, swiping will not clamp at the neighboring workspaces but continue to the further ones.", false),
         MS<Bool>("gestures:workspace_swipe_use_r", "if enabled, swiping will use the r prefix instead of the m prefix for finding workspaces.", false),
+        MS<Bool>("gestures:workspace_swipe_wrap", "if enabled, swiping past the last workspace on a monitor wraps around to the first, and vice versa.", false),
         MS<Int>("gestures:close_max_timeout", "Timeout for closing windows with the close gesture, in ms.", 1000, {.min = 10, .max = 2000}),
         MS<Bool>("gestures:scrolling:move_snap_to_grid", "When releasing the scroll move gesture, whether it shoud try to snap to the grid.", true),
         MS<Bool>("gestures:scrolling:move_snap_cursor", "When releasing the scroll move gesture, whether it shoud snap the cursor to the newly focused window.", true),

@@ -389,3 +389,39 @@ TEST_CASE(gestures) {
         OK(getFromSocket(std::format("/dispatch hl.dsp.cursor.move({{ x = {}, y = {} }})", x.value(), y.value())));
     }
 }
+
+TEST_CASE(workspaceSwipeWrap) {
+    OK(getFromSocket("/eval hl.monitor({ output = 'HEADLESS-WRAP', mode = '1920x1080@60', position = 'auto-right', scale = '1' })"));
+    OK(getFromSocket("/output create headless HEADLESS-WRAP"));
+    ASSERT_CONTAINS(getFromSocket("/monitors"), "HEADLESS-WRAP");
+    OK(getFromSocket("/dispatch hl.dsp.focus({ monitor = 'HEADLESS-WRAP' })"));
+    for (const auto& ws : {"11", "12", "13"}) {
+        OK(getFromSocket(std::format("/eval hl.workspace_rule({{ workspace = '{}', monitor = 'HEADLESS-WRAP', persistent = true }})", ws)));
+    }
+    OK(getFromSocket("/dispatch hl.dsp.focus({ workspace = '13' })"));
+    EXPECT_COUNT_STRING(getFromSocket("/workspaces"), "on monitor HEADLESS-WRAP", 3);
+
+    OK(getFromSocket("/eval hl.config({ gestures = { workspace_swipe_invert = 0, workspace_swipe_create_new = 0 } })"));
+    OK(getFromSocket("/eval hl.plugin.test.alt(1)"));
+
+    // Without wrap, the swipe stops at the last workspace.
+    OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 13 (13)");
+
+    OK(getFromSocket("/eval hl.config({ gestures = { workspace_swipe_wrap = 1 } })"));
+
+    OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 11 (11)");
+
+    OK(getFromSocket("/eval hl.plugin.test.gesture('left', 3)"));
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 13 (13)");
+
+    // Wrapping wins over creating a new workspace past the last one.
+    OK(getFromSocket("/eval hl.config({ gestures = { workspace_swipe_create_new = 1 } })"));
+    OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 11 (11)");
+
+    OK(getFromSocket("/eval hl.plugin.test.alt(0)"));
+    OK(getFromSocket("/output remove HEADLESS-WRAP"));
+    OK(getFromSocket("/reload"));
+}
