@@ -24,7 +24,7 @@ namespace Monitor {
         std::string         output; // a monitor selector: connector name or desc:
         std::vector<double> ratios; // one entry per region; fewer than two means no split
         std::string         layout     = "equal";
-        int                 workspaces = 10; // persistent workspaces on every region but the first
+        int                 workspaces = 10; // persistent workspaces on every region but the first; 0 leaves numbering to the config
         std::string         profile;
     };
 
@@ -44,6 +44,8 @@ namespace Monitor {
         // what the regions showed when they were merged, so restore can put it back
         std::vector<std::optional<uint32_t>> savedActive;
         size_t                               savedFocus = 0;
+        // which region each workspace was on, by its address
+        std::unordered_map<std::string, size_t> savedHome;
     };
 
     class CVirtualMonitorManager {

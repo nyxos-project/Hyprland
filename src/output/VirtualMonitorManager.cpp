@@ -154,7 +154,7 @@ std::expected<void, std::string> CVirtualMonitorManager::declare(SVirtualMonitor
     if (std::ranges::any_of(config.ratios, [](double r) { return !std::isfinite(r) || r <= 0; }))
         return std::unexpected("region proportions must be positive");
 
-    config.workspaces = std::clamp(config.workspaces, 1, 10);
+    config.workspaces = std::clamp(config.workspaces, 0, 10);
 
     const auto EXISTING = std::ranges::find_if(m_configs, [&config](const auto& c) { return c.output == config.output; });
 
@@ -343,6 +343,10 @@ void CVirtualMonitorManager::reconcile() {
 }
 
 uint32_t CVirtualMonitorManager::workspaceBase(const SVirtualGroup& group, size_t index) const {
+    // 0: the config numbers each monitor's workspaces itself (Omarchy does), so regions own none
+    if (group.config.workspaces == 0)
+        return 0;
+
     const auto SLOT = group.firstSlot + index;
     // the first region of the first split output keeps the ordinary workspaces, so splitting moves nothing
     return SLOT == 1 ? 0 : sc<uint32_t>(SLOT * 100);
@@ -475,9 +479,12 @@ std::expected<void, std::string> CVirtualMonitorManager::activate(SVirtualGroup&
         if (!ws || ws->m_monitor != HOST)
             continue;
 
-        State::Workspace::placementController()->moveWorkspaceToMonitor(ws, regions[regionForWorkspace(group, ws)], true, false, false);
+        const auto HOME  = group.savedHome.find(ws->addressableName());
+        const auto INDEX = HOME != group.savedHome.end() && HOME->second < regions.size() ? HOME->second : regionForWorkspace(group, ws);
+        State::Workspace::placementController()->moveWorkspaceToMonitor(ws, regions[INDEX], true, false, false);
     }
     HOST->m_activeWorkspace.reset();
+    group.savedHome.clear();
 
     for (size_t i = 0; i < regions.size(); ++i) {
         PHLWORKSPACE target;
@@ -549,6 +556,13 @@ void CVirtualMonitorManager::dissolve(SVirtualGroup& group, bool forMerge) {
             group.savedActive.emplace_back(r->m_activeWorkspace ? r->m_activeWorkspace->numberedID() : std::nullopt);
         }
         group.savedFocus = FOCUS_INSIDE ? sc<size_t>(std::ranges::distance(regions.begin(), FOCUSED_IT)) : 0;
+
+        group.savedHome.clear();
+        for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
+            const auto ON = ws ? std::ranges::find(regions, ws->m_monitor.lock()) : regions.end();
+            if (ON != regions.end())
+                group.savedHome[ws->addressableName()] = sc<size_t>(std::ranges::distance(regions.begin(), ON));
+        }
     }
 
     group.hostModeChanged.reset();
