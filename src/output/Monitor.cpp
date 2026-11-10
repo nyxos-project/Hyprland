@@ -30,6 +30,7 @@
 #include "../animation/WorkspaceAnimationController.hpp"
 #include "../managers/input/InputManager.hpp"
 #include "../managers/fullscreen/FullscreenController.hpp"
+#include "../managers/fullscreen/FullscreenSpaces.hpp"
 #include "../errorOverlay/Overlay.hpp"
 #include "../layout/LayoutManager.hpp"
 #include "../layout/space/Space.hpp"
@@ -1423,17 +1424,27 @@ static bool shouldWraparound(const WORKSPACEID id1, const WORKSPACEID id2) {
     if (!*PWORKSPACEWRAPAROUND)
         return false;
 
-    WORKSPACEID lowestID  = INT64_MAX;
-    WORKSPACEID highestID = INT64_MIN;
+    // In navigation order, so a fullscreen workspace after the last one is the end the animation wraps from.
+    const auto& SPACES = Fullscreen::spaces();
+    const auto  before = [&](WORKSPACEID a, WORKSPACEID b) { return SPACES->navigationBefore(a, b); };
+
+    std::optional<WORKSPACEID> lowestID, highestID;
 
     for (auto const& w : State::workspaceState()->workspaces()) {
-        if (w->m_id < 0 || w->m_isSpecialWorkspace)
+        if (std::get<0>(SPACES->navigationKey(w->m_id)) < 0 || w->m_isSpecialWorkspace)
             continue;
-        lowestID  = std::min(w->m_id, lowestID);
-        highestID = std::max(w->m_id, highestID);
+        if (!lowestID || before(w->m_id, *lowestID))
+            lowestID = w->m_id;
+        if (!highestID || before(*highestID, w->m_id))
+            highestID = w->m_id;
     }
 
-    return std::min(id1, id2) == lowestID && std::max(id1, id2) == highestID;
+    if (!lowestID || !highestID)
+        return false;
+
+    const auto LOW  = before(id1, id2) ? id1 : id2;
+    const auto HIGH = LOW == id1 ? id2 : id1;
+    return LOW == *lowestID && HIGH == *highestID;
 }
 
 void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bool noMouseMove, bool noFocus) {
@@ -1468,7 +1479,8 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
     pWorkspace->m_visible = true;
 
     if (!internal) {
-        const auto ANIMTOLEFT = POLDWORKSPACE && (shouldWraparound(pWorkspace->m_id, POLDWORKSPACE->m_id) ^ (pWorkspace->m_id > POLDWORKSPACE->m_id));
+        const auto ANIMTOLEFT = POLDWORKSPACE &&
+            (shouldWraparound(pWorkspace->m_id, POLDWORKSPACE->m_id) ^ Fullscreen::spaces()->navigationBefore(POLDWORKSPACE->m_id, pWorkspace->m_id));
         const auto ANIMSTYLE  = pWorkspace->m_animationStyle;
         if (POLDWORKSPACE)
             Animation::Workspace::startAnimation(POLDWORKSPACE, Animation::Workspace::ANIMATION_TYPE_OUT, ANIMTOLEFT, false, ANIMSTYLE);

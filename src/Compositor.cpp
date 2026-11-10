@@ -18,6 +18,7 @@
 #include "managers/VersionKeeperManager.hpp"
 #include "managers/DonationNagManager.hpp"
 #include "managers/ANRManager.hpp"
+#include "managers/fullscreen/FullscreenSpaces.hpp"
 #include "managers/eventLoop/EventLoopManager.hpp"
 #include "managers/permissions/DynamicPermissionManager.hpp"
 #include "state/FallbackState.hpp"
@@ -754,6 +755,9 @@ void CCompositor::initManagers(eManagersInitStage stage) {
 
             Log::logger->log(Log::DEBUG, "Creating the ANRManager!");
             g_pANRManager = makeUnique<CANRManager>();
+
+            Log::logger->log(Log::DEBUG, "Creating the FullscreenSpaces!");
+            Fullscreen::spaces();
 
             Log::logger->log(Log::DEBUG, "Starting XWayland");
             g_pXWayland = makeUnique<CXWayland>(g_pCompositor->m_wantsXwayland);

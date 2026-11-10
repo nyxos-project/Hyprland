@@ -9,6 +9,7 @@
 #include "../state/MonitorState.hpp"
 #include "../state/WorkspaceState.hpp"
 #include "../config/shared/workspace/WorkspaceRuleManager.hpp"
+#include "../managers/fullscreen/FullscreenSpaces.hpp"
 #include "fs/FsUtils.hpp"
 #include <optional>
 #include <cstring>
@@ -258,6 +259,10 @@ SWorkspaceIDName getWorkspaceIDNameFromString(const std::string& in) {
                 if (ws->m_isSpecialWorkspace || (ws->m_monitor != Desktop::focusState()->monitor()) || ws->m_id >= 0)
                     continue;
 
+                // r counts by ID, so fullscreen workspaces (between numbered ones) aren't counted.
+                if (Fullscreen::spaces()->isFullscreenWorkspace(ws->m_id))
+                    continue;
+
                 namedWSes.push_back(ws->m_id);
             }
             std::ranges::sort(namedWSes);
@@ -282,7 +287,13 @@ SWorkspaceIDName getWorkspaceIDNameFromString(const std::string& in) {
             } else {
 
                 // Just take a blind guess at where we'll probably end up
-                WORKSPACEID activeWSID    = Desktop::focusState()->monitor()->m_activeWorkspace ? Desktop::focusState()->monitor()->m_activeWorkspace->m_id : 1;
+                WORKSPACEID activeWSID = Desktop::focusState()->monitor()->m_activeWorkspace ? Desktop::focusState()->monitor()->m_activeWorkspace->m_id : 1;
+                // A fullscreen workspace sits just after the workspace it came from: r+1 is the next one, r-1 that one.
+                if (Fullscreen::spaces()->isFullscreenWorkspace(activeWSID)) {
+                    activeWSID = std::get<0>(Fullscreen::spaces()->navigationKey(activeWSID));
+                    if (in[1] == '-' && activeWSID > 0)
+                        activeWSID++;
+                }
                 WORKSPACEID predictedWSID = activeWSID + remains;
                 int         remainingWSes = 0;
                 char        walkDir       = in[1];
@@ -405,7 +416,8 @@ SWorkspaceIDName getWorkspaceIDNameFromString(const std::string& in) {
                 validWSes.push_back(ws->m_id);
             }
 
-            std::ranges::sort(validWSes);
+            // Fullscreen workspaces sit right after the workspace they came from.
+            std::ranges::sort(validWSes, [](WORKSPACEID a, WORKSPACEID b) { return Fullscreen::spaces()->navigationBefore(a, b); });
 
             ssize_t currentItem = -1;
 

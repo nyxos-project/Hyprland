@@ -8,6 +8,7 @@
 #include "../../layout/space/Space.hpp"
 #include "../../layout/algorithm/Algorithm.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
+#include "../../managers/fullscreen/FullscreenSpaces.hpp"
 
 bool CUnifiedWorkspaceSwipeGesture::isGestureInProgress() {
     return !!m_workspaceBegin;
@@ -73,9 +74,13 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
 
     m_delta = std::clamp(m_delta, sc<double>(-SWIPEDISTANCE), sc<double>(SWIPEDISTANCE));
 
+    // Compared in navigation order, which puts fullscreen workspaces right after their origin.
+    const auto before = [](WORKSPACEID a, WORKSPACEID b) { return Fullscreen::spaces()->navigationBefore(a, b); };
+
     if ((m_workspaceBegin->m_id == workspaceIDLeft && *PSWIPENEW && (m_delta < 0)) ||
         (!*PSWIPEWRAP &&
-         ((m_delta > 0 && m_workspaceBegin->getWindowCount() == 0 && workspaceIDRight <= m_workspaceBegin->m_id) || (m_delta < 0 && m_workspaceBegin->m_id <= workspaceIDLeft)))) {
+         ((m_delta > 0 && m_workspaceBegin->getWindowCount() == 0 && !before(m_workspaceBegin->m_id, workspaceIDRight)) ||
+          (m_delta < 0 && !before(workspaceIDLeft, m_workspaceBegin->m_id))))) {
 
         m_delta = 0;
         g_pHyprRenderer->damageMonitor(m_monitor.lock());
@@ -93,7 +98,7 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
     if (m_delta < 0) {
         const auto PWORKSPACE = State::workspaceState()->query().id(workspaceIDLeft).run();
 
-        if ((!*PSWIPEWRAP && workspaceIDLeft > m_workspaceBegin->m_id) || !PWORKSPACE) {
+        if ((!*PSWIPEWRAP && before(m_workspaceBegin->m_id, workspaceIDLeft)) || !PWORKSPACE) {
             if (*PSWIPENEW) {
                 g_pHyprRenderer->damageMonitor(m_monitor.lock());
 
@@ -133,7 +138,7 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
     } else {
         const auto PWORKSPACE = State::workspaceState()->query().id(workspaceIDRight).run();
 
-        if ((!*PSWIPEWRAP && workspaceIDRight < m_workspaceBegin->m_id) || !PWORKSPACE) {
+        if ((!*PSWIPEWRAP && before(workspaceIDRight, m_workspaceBegin->m_id)) || !PWORKSPACE) {
             if (*PSWIPENEW) {
                 g_pHyprRenderer->damageMonitor(m_monitor.lock());
 
@@ -205,7 +210,7 @@ void CUnifiedWorkspaceSwipeGesture::end() {
 
     // If we've been swiping off the right end with PSWIPENEW enabled, there is
     // no workspace there yet, and we need to choose an ID for a new one now.
-    if (workspaceIDRight <= m_workspaceBegin->m_id && *PSWIPENEW && !*PSWIPEWRAP)
+    if (!Fullscreen::spaces()->navigationBefore(m_workspaceBegin->m_id, workspaceIDRight) && *PSWIPENEW && !*PSWIPEWRAP)
         workspaceIDRight = getWorkspaceIDNameFromString("r+1").id;
 
     auto         PWORKSPACER = State::workspaceState()->query().id(workspaceIDRight).run(); // not guaranteed if PSWIPENEW || PSWIPENUMBER
