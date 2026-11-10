@@ -271,9 +271,11 @@ void IFullscreenHandler::setNoMembersAboveFullscreen() {
             w->updateFullscreenInputState();
         }
     }
+    // Only a map or a layer change (see CLayerSurface) may put a top layer above fullscreen again;
+    // a fullscreen change on another workspace of this monitor must not.
     for (auto const& ls : Desktop::layerState()->layers()) {
         if (ls->m_monitor == MONITOR)
-            ls->m_aboveFullscreen = !SET;
+            ls->m_aboveFullscreen = false;
     }
 }
 

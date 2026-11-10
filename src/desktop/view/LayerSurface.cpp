@@ -16,6 +16,7 @@
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../event/EventBus.hpp"
 #include "../../state/MonitorState.hpp"
+#include "../../config/ConfigValue.hpp"
 
 using namespace Desktop;
 using namespace Desktop::View;
@@ -162,9 +163,8 @@ void CLayerSurface::onDestroy() {
 void CLayerSurface::onMap() {
     Log::logger->log(Log::DEBUG, "LayerSurface {:x} mapped", rc<uintptr_t>(m_layerSurface.get()));
 
-    m_mapped          = true;
-    m_interactivity   = m_layerSurface->m_current.interactivity;
-    m_aboveFullscreen = true;
+    m_mapped        = true;
+    m_interactivity = m_layerSurface->m_current.interactivity;
 
     m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_ALL);
 
@@ -175,6 +175,11 @@ void CLayerSurface::onMap() {
 
     if (!PMONITOR)
         return;
+
+    static auto PALLOWNEWTOPOVERFULLSCREEN = CConfigValue<Config::INTEGER>("misc:allow_new_top_layers_over_existing_fullscreen");
+
+    // Fullscreen only clears this flag, so a bar mapped over a fullscreen window stays under it unless allowed.
+    m_aboveFullscreen = m_layer >= ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY || (m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && *PALLOWNEWTOPOVERFULLSCREEN);
 
     PMONITOR->m_scheduledRecalc = true;
 
@@ -213,7 +218,9 @@ void CLayerSurface::onMap() {
     m_realPosition->setConfig(Config::animationTree()->getAnimationPropertyConfig("layersIn"));
     m_realSize->setConfig(Config::animationTree()->getAnimationPropertyConfig("layersIn"));
     m_alpha.get(LS_ALPHA_FADE)->setConfig(Config::animationTree()->getAnimationPropertyConfig("fadeLayersIn"));
-    m_animationController.apply(m_animationController.animateIn());
+
+    if (!Fullscreen::controller()->hasFullscreen(PMONITOR, true) || m_aboveFullscreen)
+        m_animationController.apply(m_animationController.animateIn());
 
     g_pEventManager->postEvent(SHyprIPCEvent{.event = "openlayer", .data = m_namespace});
     Event::bus()->m_events.layer.opened.emit(m_self.lock());
@@ -324,11 +331,13 @@ void CLayerSurface::onCommit() {
                 }
             }
 
-            m_layer           = NEW_LAYER;
-            m_aboveFullscreen = NEW_LAYER >= ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
+            m_layer = NEW_LAYER;
 
-            // if in fullscreen, only overlay can be above.
-            *m_alpha.get(LS_ALPHA_FADE) = Fullscreen::controller()->hasFullscreen(PMONITOR) ? (m_layer >= ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY ? 1.F : 0.F) : 1.F;
+            static auto PALLOWNEWTOPOVERFULLSCREEN = CConfigValue<Config::INTEGER>("misc:allow_new_top_layers_over_existing_fullscreen");
+            m_aboveFullscreen = m_layer >= ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY || (m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && *PALLOWNEWTOPOVERFULLSCREEN);
+
+            // if in fullscreen, only layers allowed above it show.
+            *m_alpha.get(LS_ALPHA_FADE) = Fullscreen::controller()->hasFullscreen(PMONITOR, true) ? (m_aboveFullscreen ? 1.F : 0.F) : 1.F;
 
             if (m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND || m_layer == ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)
                 PMONITOR->m_blurFBDirty = true; // so that blur is recalc'd

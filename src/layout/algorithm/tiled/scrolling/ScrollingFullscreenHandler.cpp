@@ -333,7 +333,7 @@ void CScrollingFullscreenHandler::setNoMembersAboveFullscreen() {
         }
         for (auto const& ls : Desktop::layerState()->layers()) {
             if (ls->m_monitor == MONITOR)
-                ls->m_aboveFullscreen = !SET;
+                ls->m_aboveFullscreen = false;
         }
     };
 
