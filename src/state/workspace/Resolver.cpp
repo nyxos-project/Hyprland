@@ -7,6 +7,7 @@
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../MonitorState.hpp"
 #include "../../output/VirtualMonitorManager.hpp"
+#include "../../managers/fullscreen/FullscreenSpaces.hpp"
 
 #include <hyprutils/string/Numeric.hpp>
 #include <hyprutils/string/String.hpp>
@@ -227,7 +228,9 @@ State::Workspace::STarget CWorkspaceResolver::getWorkspaceTargetFromString(const
             const auto numbered  = workspace->numberedID();
             if (numbered && (workspace->type() == ::Workspace::eWorkspaceType::SPECIAL || workspace->m_monitor != BASEMONITOR))
                 unavailable.insert(*numbered);
-            else if (!numbered && workspace->type() != ::Workspace::eWorkspaceType::SPECIAL && workspace->m_monitor == BASEMONITOR)
+            // r counts by number, so fullscreen workspaces (between numbered ones) aren't counted.
+            else if (!numbered && workspace->type() != ::Workspace::eWorkspaceType::SPECIAL && workspace->m_monitor == BASEMONITOR &&
+                     !Fullscreen::spaces()->isFullscreenWorkspace(workspace))
                 named.emplace_back(workspace);
         }
         std::ranges::reverse(named);
@@ -253,9 +256,18 @@ State::Workspace::STarget CWorkspaceResolver::getWorkspaceTargetFromString(const
             return ID ? numberedTarget(*ID) : State::Workspace::STarget{};
         }
 
-        const auto ACTIVE_NUMBERED = BASEMONITOR->m_activeWorkspace ? BASEMONITOR->m_activeWorkspace->numberedID() : std::optional<::Workspace::WorkspaceIDContainer>{1};
+        // A fullscreen workspace sits just after the workspace it came from: r+1 is the next one, r-1 that one.
+        auto ACTIVE = BASEMONITOR->m_activeWorkspace;
+        auto ACTIVE_NUMBERED =
+            ACTIVE ? ACTIVE->numberedID() : std::optional<::Workspace::WorkspaceIDContainer>{1};
+        if (ACTIVE && Fullscreen::spaces()->isFullscreenWorkspace(ACTIVE)) {
+            ACTIVE          = Fullscreen::spaces()->originWorkspace(ACTIVE);
+            ACTIVE_NUMBERED = ACTIVE ? ACTIVE->numberedID() : std::nullopt;
+            if (ACTIVE_NUMBERED && remains < 0 && *ACTIVE_NUMBERED < UINT32_MAX)
+                ACTIVE_NUMBERED = *ACTIVE_NUMBERED + 1;
+        }
         if (!ACTIVE_NUMBERED) {
-            const auto CURRENT = std::ranges::find(named, BASEMONITOR->m_activeWorkspace);
+            const auto CURRENT = std::ranges::find(named, ACTIVE);
             auto       index   = CURRENT == named.end() ? sc<int64_t>(named.size()) : sc<int64_t>(std::ranges::distance(named.begin(), CURRENT));
             index += remains;
             if (index < 0)
@@ -302,6 +314,8 @@ State::Workspace::STarget CWorkspaceResolver::getWorkspaceTargetFromString(const
         std::ranges::reverse(named);
         std::ranges::sort(numbered, {}, [](const auto& workspace) { return *workspace->numberedID(); });
         named.insert(named.end(), numbered.begin(), numbered.end());
+        // Fullscreen workspaces sit right after the workspace they came from.
+        Fullscreen::spaces()->arrange(named);
         if (named.empty())
             return {};
 

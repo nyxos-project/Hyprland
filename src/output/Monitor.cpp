@@ -33,6 +33,7 @@
 #include "../animation/WorkspaceAnimationController.hpp"
 #include "../managers/input/InputManager.hpp"
 #include "../managers/fullscreen/FullscreenController.hpp"
+#include "../managers/fullscreen/FullscreenSpaces.hpp"
 #include "../errorOverlay/Overlay.hpp"
 #include "../layout/LayoutManager.hpp"
 #include "../layout/space/Space.hpp"
@@ -1382,9 +1383,14 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
     pWorkspace->setVisible(true);
 
     if (!internal) {
-        const auto NEW_ID     = pWorkspace->numberedID();
-        const auto OLD_ID     = POLDWORKSPACE ? POLDWORKSPACE->numberedID() : std::nullopt;
-        const auto ANIMTOLEFT = NEW_ID && OLD_ID && (shouldWraparound(*NEW_ID, *OLD_ID, m_self.lock()) ^ (*NEW_ID > *OLD_ID));
+        static auto PWORKSPACEWRAPAROUND = CConfigValue<Config::INTEGER>("animations:workspace_wraparound");
+
+        const auto  NEW_ID = pWorkspace->numberedID();
+        const auto  OLD_ID = POLDWORKSPACE ? POLDWORKSPACE->numberedID() : std::nullopt;
+        // A fullscreen workspace slides in from where it sits: right after the workspace it came from.
+        const auto FULLSCREEN_FORWARD = Fullscreen::spaces()->slidesForward(POLDWORKSPACE, pWorkspace, m_self.lock(), *PWORKSPACEWRAPAROUND);
+        const auto ANIMTOLEFT =
+            FULLSCREEN_FORWARD ? *FULLSCREEN_FORWARD : NEW_ID && OLD_ID && (shouldWraparound(*NEW_ID, *OLD_ID, m_self.lock()) ^ (*NEW_ID > *OLD_ID));
         const auto ANIMSTYLE  = pWorkspace->m_animationStyle;
         if (POLDWORKSPACE)
             Animation::Workspace::startAnimation(POLDWORKSPACE, Animation::Workspace::ANIMATION_TYPE_OUT, ANIMTOLEFT, false, ANIMSTYLE);

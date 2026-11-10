@@ -593,6 +593,8 @@ std::vector<SP<IValue>> Values::getConfigValues() {
                 {.min = 0, .max = 2, .map = OptionMap{{"ignore", 0}, {"take_over", 1}, {"exit_fullscreen", 2}}}),
         MS<Int>("misc:exit_window_retains_fullscreen", "whether closing a fullscreen window makes the next focused window to be fullscreened", 0,
                 {.min = 0, .max = 3, .map = OptionMap{{"disable", 0}, {"enable", 1}, {"only_when_grouped", 2}, {"only_when_nongrouped", 3}}}),
+        MS<Bool>("misc:fullscreen_own_workspace",
+                 "If true, a window going fullscreen moves to a workspace of its own, right after the one it was on, and back when it leaves fullscreen.", false),
         MS<Int>("misc:initial_workspace_tracking", "if enabled, windows will open on the workspace they were invoked on.", 1, {.min = 0, .max = 2}),
         MS<Int>("misc:initial_workspace_token_timeout", "the time in seconds a window has to open on its invoked workspace before the tracking token expires.", 10,
                 {.min = 1, .max = 3600}),

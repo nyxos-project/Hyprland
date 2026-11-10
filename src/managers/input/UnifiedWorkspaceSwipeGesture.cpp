@@ -10,6 +10,7 @@
 #include "../../layout/space/Space.hpp"
 #include "../../layout/algorithm/Algorithm.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
+#include "../../managers/fullscreen/FullscreenSpaces.hpp"
 
 static bool sameWorkspaceIdentity(const State::Workspace::STarget& target, const PHLWORKSPACE& workspace) {
     return workspace && target.id && *target.id == workspace->id() && target.type == workspace->type() && target.address == workspace->addressableName();
@@ -253,12 +254,11 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
 
     m_delta = std::clamp(m_delta, sc<double>(-SWIPEDISTANCE), sc<double>(SWIPEDISTANCE));
 
-    const auto BEGIN_ID = m_workspaceBegin->numberedID();
-    const auto LEFT_ID  = std::get_if<Workspace::SWorkspaceNumberedID>(&*workspaceLeft.id);
-    const auto RIGHT_ID = std::get_if<Workspace::SWorkspaceNumberedID>(&*workspaceRight.id);
+    // Where the neighbours are relative to the start, in navigation order (fullscreen workspaces right after their origin).
+    const auto LEFT  = Fullscreen::spaces()->compare(m_workspaceBegin, workspaceLeft);
+    const auto RIGHT = Fullscreen::spaces()->compare(m_workspaceBegin, workspaceRight);
     if ((sameWorkspaceIdentity(workspaceLeft, m_workspaceBegin) && *PSWIPENEW && (m_delta < 0)) ||
-        (!*PSWIPEWRAP && m_delta > 0 && m_workspaceBegin->getWindowCount() == 0 && BEGIN_ID && RIGHT_ID && RIGHT_ID->value <= *BEGIN_ID) ||
-        (!*PSWIPEWRAP && m_delta < 0 && BEGIN_ID && LEFT_ID && *BEGIN_ID <= LEFT_ID->value)) {
+        (!*PSWIPEWRAP && m_delta > 0 && m_workspaceBegin->getWindowCount() == 0 && RIGHT && *RIGHT >= 0) || (!*PSWIPEWRAP && m_delta < 0 && LEFT && *LEFT <= 0)) {
 
         m_delta = 0;
         releaseOtherParticipants(nullptr);
@@ -279,7 +279,7 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
     if (m_delta < 0) {
         const auto PWORKSPACE = State::Workspace::state()->find(workspaceLeft);
 
-        if ((!*PSWIPEWRAP && BEGIN_ID && LEFT_ID && LEFT_ID->value > *BEGIN_ID) || !PWORKSPACE) {
+        if ((!*PSWIPEWRAP && LEFT && *LEFT < 0) || !PWORKSPACE) {
             if (*PSWIPENEW) {
                 g_pHyprRenderer->damageMonitor(m_monitor.lock());
 
@@ -309,7 +309,7 @@ void CUnifiedWorkspaceSwipeGesture::update(double delta) {
     } else {
         const auto PWORKSPACE = State::Workspace::state()->find(workspaceRight);
 
-        if ((!*PSWIPEWRAP && BEGIN_ID && RIGHT_ID && RIGHT_ID->value < *BEGIN_ID) || !PWORKSPACE) {
+        if ((!*PSWIPEWRAP && RIGHT && *RIGHT > 0) || !PWORKSPACE) {
             if (*PSWIPENEW) {
                 g_pHyprRenderer->damageMonitor(m_monitor.lock());
 
@@ -388,9 +388,8 @@ bool CUnifiedWorkspaceSwipeGesture::endSegment() {
 
     // If we've been swiping off the right end with PSWIPENEW enabled, there is
     // no workspace there yet, and we need to choose an ID for a new one now.
-    const auto BEGIN_ID = m_workspaceBegin->numberedID();
-    const auto RIGHT_ID = workspaceRight.id ? std::get_if<Workspace::SWorkspaceNumberedID>(&*workspaceRight.id) : nullptr;
-    if (BEGIN_ID && RIGHT_ID && RIGHT_ID->value <= *BEGIN_ID && *PSWIPENEW && !*PSWIPEWRAP)
+    const auto RIGHT = Fullscreen::spaces()->compare(m_workspaceBegin, workspaceRight);
+    if (RIGHT && *RIGHT >= 0 && *PSWIPENEW && !*PSWIPEWRAP)
         workspaceRight = State::Workspace::resolver()->getWorkspaceTargetFromString("r+1", m_monitor.lock());
 
     if (!workspaceLeft.valid() || !workspaceRight.valid()) {
