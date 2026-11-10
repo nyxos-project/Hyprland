@@ -836,6 +836,17 @@ std::vector<SP<IValue>> Values::getConfigValues() {
          */
 
         MS<Bool>("experimental:wp_cm_1_2", "Allow wp-cm-v1 version 2", true),
+        MS<Bool>("experimental:virtual_monitors", "Allow hl.virtual_monitor to split outputs into virtual monitors", false),
+
+        /*
+         * virtual_monitors:
+         */
+
+        MS<Int>("virtual_monitors:workspace_target", "Which virtual monitor workspace actions act on: the focused one or the one under the pointer. [focus/pointer]", 0,
+                {.min = 0, .max = 1, .map = OptionMap{{"focus", 0}, {"pointer", 1}}}),
+        MS<Int>("virtual_monitors:fullscreen", "What fullscreen does on a virtual monitor: fill the region, or merge the regions and fill the whole output. [region/physical]", 0,
+                {.min = 0, .max = 1, .map = OptionMap{{"region", 0}, {"physical", 1}}}),
+        MS<Int>("virtual_monitors:min_region_width", "The narrowest a virtual monitor may be, in logical pixels.", 640, {.min = 320, .max = 4096}),
 
         /*
 		 * input_capture:

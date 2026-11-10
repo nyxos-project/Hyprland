@@ -36,7 +36,7 @@ void CMonitorStateTracker::syncActiveMonitors() {
     m_monitors.clear();
 
     for (const auto& rm : m_realMonitors) {
-        if (!rm->m_enabled || rm->isMirror())
+        if (!rm->m_enabled || rm->isHiddenFromLayout())
             continue;
 
         m_monitors.emplace_back(rm);

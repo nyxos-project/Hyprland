@@ -1,5 +1,6 @@
 
 #include "Compositor.hpp"
+#include "output/VirtualMonitorManager.hpp"
 #include "helpers/MiscFunctions.hpp"
 #include "render/decorations/DecorationPositioner.hpp"
 #include "config/supplementary/executor/Executor.hpp"
@@ -673,6 +674,9 @@ void CCompositor::initManagers(eManagersInitStage stage) {
 
             LOG(Log::DEBUG, "Creating the WorkspaceState!");
             State::Workspace::state();
+
+            LOG(Log::DEBUG, "Creating the VirtualMonitorManager!");
+            Monitor::virtualMonitors();
 
             LOG(Log::DEBUG, "Creating the ConfigManager!");
             if (!Config::initConfigManager())

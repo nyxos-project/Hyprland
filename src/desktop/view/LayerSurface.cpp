@@ -51,8 +51,8 @@ PHLLS CLayerSurface::create(SP<CLayerShellResource> resource) {
         return pLS;
     }
 
-    if (pMonitor->m_mirrorOf)
-        pMonitor = State::monitorState()->monitors().front();
+    if (pMonitor->isHiddenFromLayout())
+        pMonitor = pMonitor->isVirtualHost() ? pMonitor->m_virtual.regions.front().lock() : State::monitorState()->monitors().front();
 
     pLS->m_monitor = pMonitor;
     pMonitor->m_layerSurfaceLayers[resource->m_current.layer].emplace_back(pLS);

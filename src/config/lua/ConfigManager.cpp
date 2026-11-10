@@ -32,6 +32,7 @@
 #include "../../managers/input/InputManager.hpp"
 #include "../../keybinds/Manager.hpp"
 #include "../../output/Monitor.hpp"
+#include "../../output/VirtualMonitorManager.hpp"
 #include "../../layout/space/Space.hpp"
 #include "../../layout/supplementary/WorkspaceAlgoMatcher.hpp"
 #include "../../render/Renderer.hpp"
@@ -675,6 +676,7 @@ void CConfigManager::reload() {
     Config::animationTree()->reset();
     Config::workspaceRuleMgr()->clear();
     Config::monitorRuleMgr()->clear();
+    Monitor::virtualMonitors()->beginConfigReload();
     Desktop::Rule::ruleEngine()->clearAllRules();
     g_pTrackpadGestures->clearGestures();
     cleanTimers();

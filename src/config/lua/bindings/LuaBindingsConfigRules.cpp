@@ -26,6 +26,7 @@
 #include "../../../desktop/rule/windowRule/WindowRule.hpp"
 #include "../../../desktop/rule/windowRule/WindowRuleEffectContainer.hpp"
 #include "../../../layout/LayoutManager.hpp"
+#include "../../../output/VirtualMonitorManager.hpp"
 #include "../../../keybinds/Resolver.hpp"
 #include "../../../layout/supplementary/WorkspaceAlgoMatcher.hpp"
 #include "../../../animation/AnimationManager.hpp"
@@ -1138,6 +1139,80 @@ static int hlMonitor(lua_State* L) {
     return 0;
 }
 
+static int hlVirtualMonitor(lua_State* L) {
+    auto* self = sc<CConfigManager*>(lua_touserdata(L, lua_upvalueindex(1)));
+
+    if (!lua_istable(L, 1)) {
+        self->addError("hl.virtual_monitor: argument must be a table");
+        return 0;
+    }
+
+    const std::string sourceInfo = Internal::getSourceInfo(L);
+    const auto        fail       = [&](const std::string& msg) {
+        self->addError(std::format("{}: hl.virtual_monitor: {}", sourceInfo, msg));
+        return 0;
+    };
+
+    static constexpr std::string_view FIELDS[] = {"output", "regions", "count", "layout", "workspaces", "profile", "enabled", "confirm"};
+    lua_pushnil(L);
+    while (lua_next(L, 1) != 0) {
+        const bool KNOWN = lua_type(L, -2) == LUA_TSTRING && std::ranges::contains(FIELDS, std::string_view{lua_tostring(L, -2)});
+        const auto KEY   = lua_type(L, -2) == LUA_TSTRING ? std::string{lua_tostring(L, -2)} : std::string{"?"};
+        lua_pop(L, 1);
+        if (!KNOWN) {
+            lua_pop(L, 1);
+            return fail(std::format("unknown field '{}'", KEY));
+        }
+    }
+
+    Monitor::SVirtualMonitorConfig config;
+
+    const auto                     OUTPUT = Internal::tableOptStr(L, 1, "output");
+    if (!OUTPUT || OUTPUT->empty())
+        return fail("'output' field is required and must be a string");
+
+    config.output     = *OUTPUT;
+    config.layout     = Internal::tableOptStr(L, 1, "layout").value_or("equal");
+    config.profile    = Internal::tableOptStr(L, 1, "profile").value_or("");
+    config.workspaces = sc<int>(Internal::tableOptNum(L, 1, "workspaces").value_or(10));
+
+    lua_getfield(L, 1, "regions");
+    if (lua_istable(L, -1)) {
+        const auto LEN = lua_rawlen(L, -1);
+        for (size_t i = 1; i <= LEN; ++i) {
+            lua_rawgeti(L, -1, sc<lua_Integer>(i));
+            if (!lua_isnumber(L, -1)) {
+                lua_pop(L, 2);
+                return fail("'regions' must be a list of proportions, e.g. { 25, 50, 25 }");
+            }
+            config.ratios.push_back(lua_tonumber(L, -1));
+            lua_pop(L, 1);
+        }
+    } else if (!lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        return fail("'regions' must be a list of proportions, e.g. { 25, 50, 25 }");
+    }
+    lua_pop(L, 1);
+
+    if (config.ratios.empty()) {
+        if (const auto COUNT = Internal::tableOptNum(L, 1, "count"); COUNT) {
+            const auto RATIOS = Monitor::Virtual::presetRatios(config.layout == "custom" ? "equal" : config.layout, sc<size_t>(std::max(0.0, *COUNT)));
+            if (!RATIOS)
+                return fail(RATIOS.error());
+            config.ratios = *RATIOS;
+        }
+    }
+
+    if (!Internal::tableOptBool(L, 1, "enabled").value_or(true))
+        config.ratios.clear();
+
+    const auto CONFIRM = Internal::tableOptNum(L, 1, "confirm");
+    if (auto res = Monitor::virtualMonitors()->declare(std::move(config), CONFIRM ? std::optional<int>{sc<int>(*CONFIRM)} : std::nullopt); !res)
+        return fail(res.error());
+
+    return 0;
+}
+
 static int hlWindowRule(lua_State* L) {
     auto* self = sc<CConfigManager*>(lua_touserdata(L, lua_upvalueindex(1)));
 
@@ -1368,6 +1443,7 @@ void Internal::registerConfigRuleBindings(lua_State* L, CConfigManager* mgr) {
     Internal::setMgrFn(L, mgr, "get_config", hlGetConfig);
     Internal::setMgrFn(L, mgr, "device", hlDevice);
     Internal::setMgrFn(L, mgr, "monitor", hlMonitor);
+    Internal::setMgrFn(L, mgr, "virtual_monitor", hlVirtualMonitor);
     Internal::setMgrFn(L, mgr, "window_rule", hlWindowRule);
     Internal::setMgrFn(L, mgr, "layer_rule", hlLayerRule);
     Internal::setMgrFn(L, mgr, "workspace_rule", hlWorkspaceRule);

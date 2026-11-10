@@ -143,6 +143,16 @@ namespace Monitor {
         PHLMONITORREF              m_mirrorOf;
         std::vector<PHLMONITORREF> m_mirrors;
 
+        // virtual monitors: each region renders on its own, and its host output shows the regions side by side
+        struct {
+            PHLMONITORREF              host;
+            std::vector<PHLMONITORREF> regions;
+            size_t                     index = 0; // 1-based, regions only
+            size_t                     count = 0;
+            Vector2D                   pixelOffset;
+            uint32_t                   workspaceBase = 0;
+        } m_virtual;
+
         // ctm
         Mat3x3 m_ctm        = Mat3x3::identity();
         bool   m_ctmUpdated = false;
@@ -270,6 +280,9 @@ namespace Monitor {
         bool         shouldSkipScheduleFrameOnMouseEvent();
         void         setMirror(const std::string&);
         bool         isMirror();
+        bool         isVirtualRegion() const;
+        bool         isVirtualHost() const;
+        bool         isHiddenFromLayout() const;
         float        getDefaultScale();
         void         changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal = false, bool noMouseMove = false, bool noFocus = false);
         void         setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus = false);

@@ -11,10 +11,12 @@
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../notification/NotificationOverlay.hpp"
 #include "../output/Monitor.hpp"
+#include "../output/VirtualMonitorManager.hpp"
 #include "../protocols/XDGOutput.hpp"
 #include "../render/Renderer.hpp"
 #include "../xwayland/XWayland.hpp"
 
+#include <algorithm>
 #include <vector>
 
 using namespace State;
@@ -63,13 +65,20 @@ void CMonitorLayoutController::arrange() const {
     std::vector<SP<Monitor::IMonitorArrangeable>> arrangeableMonitors;
     arrangeableMonitors.reserve(State::monitorState()->monitors().size());
     for (const auto& m : State::monitorState()->monitors()) {
-        auto arrangeable = dynamicPointerCast<Monitor::IMonitorArrangeable>(m);
+        // a split output is placed as a whole, and its regions follow it
+        const auto TARGET = m->isVirtualRegion() ? m->m_virtual.host.lock() : m;
+        if (!TARGET)
+            continue;
+
+        auto arrangeable = dynamicPointerCast<Monitor::IMonitorArrangeable>(TARGET);
         RASSERT(arrangeable, "CMonitor does not implement IMonitorArrangeable");
-        arrangeableMonitors.push_back(arrangeable);
+        if (!std::ranges::contains(arrangeableMonitors, arrangeable))
+            arrangeableMonitors.push_back(arrangeable);
     }
 
     LOG(Log::DEBUG, "arrangeMonitors: {} to arrange", arrangeableMonitors.size());
     State::monitorPositionController()->arrange(arrangeableMonitors, *PXWLFORCESCALEZERO);
+    Monitor::virtualMonitors()->arrangeRegions(*PXWLFORCESCALEZERO);
 
     for (const auto& m : State::monitorState()->monitors()) {
         g_pHyprRenderer->arrangeLayersForMonitor(m->m_id);

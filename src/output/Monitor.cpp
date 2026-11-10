@@ -1130,6 +1130,18 @@ bool CMonitor::isMirror() {
     return m_mirrorOf != nullptr;
 }
 
+bool CMonitor::isVirtualRegion() const {
+    return !!m_virtual.host;
+}
+
+bool CMonitor::isVirtualHost() const {
+    return !m_virtual.regions.empty();
+}
+
+bool CMonitor::isHiddenFromLayout() const {
+    return m_mirrorOf || isVirtualHost();
+}
+
 MONITORID CMonitor::id() const {
     return m_id;
 }
@@ -1147,6 +1159,10 @@ std::string_view CMonitor::shortDescription() const {
 }
 
 bool CMonitor::matchesStaticSelector(std::string_view selector) const {
+    // a region's make, model and serial are its host's, so desc: rules for the host must not reach it
+    if (isVirtualRegion() && selector.starts_with("desc:"))
+        return m_description.starts_with(trim(selector.substr(5)));
+
     if (selector.starts_with("desc:")) {
         // match by description
         const auto DESCRIPTIONSELECTOR = trim(selector.substr(5));
@@ -1307,7 +1323,7 @@ float CMonitor::getDefaultScale() {
     return 1;
 }
 
-static bool shouldWraparound(const Workspace::WorkspaceIDContainer id1, const Workspace::WorkspaceIDContainer id2) {
+static bool shouldWraparound(const Workspace::WorkspaceIDContainer id1, const Workspace::WorkspaceIDContainer id2, const PHLMONITOR& monitor) {
     static auto PWORKSPACEWRAPAROUND = CConfigValue<Config::INTEGER>("animations:workspace_wraparound");
 
     if (!*PWORKSPACEWRAPAROUND)
@@ -1316,7 +1332,13 @@ static bool shouldWraparound(const Workspace::WorkspaceIDContainer id1, const Wo
     int64_t lowestID  = INT64_MAX;
     int64_t highestID = INT64_MIN;
 
+    // a virtual monitor wraps through its own workspaces only
+    const bool OWN_ONLY = monitor && monitor->isVirtualRegion();
+
     for (auto const& w : State::Workspace::state()->workspaces()) {
+        if (OWN_ONLY && w->m_monitor != monitor)
+            continue;
+
         const auto ID = w->numberedID();
         if (!ID)
             continue;
@@ -1362,7 +1384,7 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
     if (!internal) {
         const auto NEW_ID     = pWorkspace->numberedID();
         const auto OLD_ID     = POLDWORKSPACE ? POLDWORKSPACE->numberedID() : std::nullopt;
-        const auto ANIMTOLEFT = NEW_ID && OLD_ID && (shouldWraparound(*NEW_ID, *OLD_ID) ^ (*NEW_ID > *OLD_ID));
+        const auto ANIMTOLEFT = NEW_ID && OLD_ID && (shouldWraparound(*NEW_ID, *OLD_ID, m_self.lock()) ^ (*NEW_ID > *OLD_ID));
         const auto ANIMSTYLE  = pWorkspace->m_animationStyle;
         if (POLDWORKSPACE)
             Animation::Workspace::startAnimation(POLDWORKSPACE, Animation::Workspace::ANIMATION_TYPE_OUT, ANIMTOLEFT, false, ANIMSTYLE);
@@ -1932,7 +1954,7 @@ uint16_t CMonitor::isDSBlocked(bool full) {
         }
     }
 
-    if (!m_mirrors.empty() || isMirror()) {
+    if (!m_mirrors.empty() || isMirror() || isVirtualRegion() || isVirtualHost()) {
         reasons |= DS_BLOCK_MIRROR;
         if (!full)
             return reasons;
@@ -2658,7 +2680,7 @@ void CMonitorState::applyCustomModeWithSwapchain(const SP<Aquamarine::SOutputMod
 }
 
 bool CMonitor::needsACopyFB() {
-    return !m_mirrors.empty() || Screenshare::mgr()->outputNeedsCopyFB(m_self.lock());
+    return !m_mirrors.empty() || isVirtualRegion() || Screenshare::mgr()->outputNeedsCopyFB(m_self.lock());
 }
 
 bool CMonitor::needsUnmodifiedCopy() {

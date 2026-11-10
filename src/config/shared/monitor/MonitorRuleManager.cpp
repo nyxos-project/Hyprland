@@ -3,6 +3,7 @@
 #include "../../../debug/log/Logger.hpp"
 #include "../../../protocols/OutputManagement.hpp"
 #include "../../../output/Monitor.hpp"
+#include "../../../output/VirtualMonitorManager.hpp"
 #include "../../../Compositor.hpp"
 #include "../../../event/EventBus.hpp"
 #include "../../../managers/eventLoop/EventLoopManager.hpp"
@@ -81,6 +82,9 @@ CMonitorRule CMonitorRuleManager::get(const PHLMONITOR PMONITOR) {
 
         return rule;
     };
+
+    if (auto virtualRule = Monitor::virtualMonitors()->ruleFor(PMONITOR); virtualRule)
+        return *virtualRule;
 
     if (PMONITOR->m_isUnsafeFallback) {
         CMonitorRule fallbackRule;

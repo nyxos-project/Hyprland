@@ -109,7 +109,7 @@ static void retireOutputGlobal(const std::string& name) {
 }
 
 void CProtocolManager::onMonitorModeChange(PHLMONITOR pMonitor) {
-    const bool ISMIRROR = pMonitor->isMirror();
+    const bool ISMIRROR = pMonitor->isHiddenFromLayout();
 
     // onModeChanged we check if the current mirror status matches the global.
     // mirrored outputs should have their global removed, as they are not physical parts of the
@@ -141,7 +141,7 @@ CProtocolManager::CProtocolManager() {
     static auto P = Event::bus()->m_events.monitor.added.listen([this](PHLMONITOR M) {
         // ignore mirrored outputs. I don't think this will ever be hit as mirrors are applied after
         // this event is emitted iirc.
-        if (M->isMirror())
+        if (M->isHiddenFromLayout())
             return;
 
         retireOutputGlobal(M->m_name);
