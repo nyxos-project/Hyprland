@@ -2250,6 +2250,24 @@ void IHyprRenderer::renderMirrored(CRenderContext& ctx) {
     addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
 }
 
+void IHyprRenderer::renderVirtualRegions(CRenderContext& ctx) {
+    auto host = ctx.m_data.pMonitor;
+
+    addPassElement(ctx, makeUnique<CClearPassElement>(CClearPassElement::SClearData{CHyprColor(0, 0, 0, 1)}));
+
+    for (const auto& regionRef : host->m_virtual.regions) {
+        const auto REGION = regionRef.lock();
+        if (!REGION || !REGION->resources() || !REGION->resources()->hasMirrorFB())
+            continue;
+
+        CTexPassElement::SRenderData data;
+        data.tex = REGION->resources()->getMirrorTexture();
+        data.box = {REGION->m_virtual.pixelOffset, REGION->m_transformedSize};
+
+        addPassElement(ctx, makeUnique<CTexPassElement>(std::move(data)));
+    }
+}
+
 void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
     if (m_renderingMonitor || m_context.active() || !pMonitor)
         return;
@@ -2417,7 +2435,7 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
         renderWindow(ctx, pMonitor->m_solitaryClient.lock(), pMonitor, pMonitor->m_solitaryClient->presentation().renderPresentation(), NOW, false,
                      RENDER_PASS_MAIN /* solitary = no popups */);
     else if (!finalDamage.empty()) {
-        const bool    IS_MIRROR = pMonitor->isMirror();
+        const bool    IS_MIRROR = pMonitor->isHiddenFromLayout();
         CMonitorScene scene(pMonitor);
         scene.draw(ctx, NOW);
 
@@ -3121,6 +3139,12 @@ void IHyprRenderer::damageMirrorsWith(PHLMONITOR pMonitor, const CRegion& pRegio
 
         if (auto m = mirror.lock())
             m->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_DAMAGE);
+    }
+
+    if (const auto HOST = pMonitor->m_virtual.host.lock()) {
+        CRegion onHost{pRegion};
+        onHost.translate(pMonitor->m_virtual.pixelOffset);
+        HOST->addDamage(onHost);
     }
 }
 

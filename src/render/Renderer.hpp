@@ -251,6 +251,7 @@ namespace Render {
         virtual void              renderOffToMain(CRenderContext& ctx, SP<IFramebuffer> off)                    = 0;
         virtual SP<IRenderbuffer> getOrCreateRenderbufferInternal(SP<Aquamarine::IBuffer> buffer, uint32_t fmt) = 0;
         void                      renderMirrored(CRenderContext& ctx);
+        void                      renderVirtualRegions(CRenderContext& ctx);
         void                      setDamage(CRenderContext& ctx, const CRegion& damage_, std::optional<CRegion> finalDamage);
         // if RENDER_MODE_NORMAL, provided damage will be written to.
         // otherwise, it will be the one used.

@@ -175,7 +175,7 @@ void COutputCommitCoordinator::submitted(SFrame& frame, bool async) {
     if (frame.kind == FRAME_COMPOSED) {
         if (!frame.copyFBPrepared)
             m_monitor->resources()->markMirrorFBStale(frame.renderedDamage);
-        if (!m_monitor->m_mirrors.empty())
+        if (!m_monitor->m_mirrors.empty() || m_monitor->isVirtualRegion())
             g_pHyprRenderer->damageMirrorsWith(m_monitor->m_self.lock(), frame.renderedDamage);
     } else if (!frame.copyFBPrepared)
         m_monitor->resources()->markMirrorFBStale();

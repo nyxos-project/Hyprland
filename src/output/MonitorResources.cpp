@@ -94,7 +94,7 @@ bool CMonitorResources::hasMirrorFB() const {
 }
 
 bool CMonitorResources::shouldKeepMirrorFB() const {
-    return !m_monitor->m_mirrors.empty() || Screenshare::mgr()->isOutputBeingSSd(m_monitor.lock());
+    return !m_monitor->m_mirrors.empty() || m_monitor->isVirtualRegion() || Screenshare::mgr()->isOutputBeingSSd(m_monitor.lock());
 }
 
 void CMonitorResources::releaseMirrorFB() {

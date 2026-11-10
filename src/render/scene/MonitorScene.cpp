@@ -15,9 +15,12 @@ void CMonitorScene::draw(CRenderContext& ctx, const Time::steady_tp& now) {
     if (!MONITOR)
         return;
 
-    if (MONITOR->isMirror()) {
+    if (MONITOR->isHiddenFromLayout()) {
         g_pHyprRenderer->blend(false);
-        g_pHyprRenderer->renderMirrored(ctx);
+        if (MONITOR->isVirtualHost())
+            g_pHyprRenderer->renderVirtualRegions(ctx);
+        else
+            g_pHyprRenderer->renderMirrored(ctx);
         g_pHyprRenderer->blend(true);
         Event::bus()->m_events.render.stage.emit({RENDER_POST_MIRROR, MONITOR, ctx});
         return;
