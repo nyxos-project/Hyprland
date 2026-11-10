@@ -23,6 +23,10 @@ SP<CWorkspaceRule> CWorkspaceRuleManager::add(CWorkspaceRule&& x) {
     return m_rules.emplace_back(makeShared<CWorkspaceRule>(std::move(x)));
 }
 
+void CWorkspaceRuleManager::remove(const SP<CWorkspaceRule>& x) {
+    std::erase(m_rules, x);
+}
+
 SP<CWorkspaceRule> CWorkspaceRuleManager::replaceOrAdd(CWorkspaceRule&& x) {
     auto it = std::ranges::find_if(m_rules, [&x](const auto& r) { return r->isEnabled() && r->m_workspaceString == x.m_workspaceString; });
     if (it == m_rules.end())

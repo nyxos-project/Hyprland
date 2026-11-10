@@ -21,6 +21,7 @@ namespace Config {
         void                                   clear();
         SP<CWorkspaceRule>                     add(CWorkspaceRule&&);
         SP<CWorkspaceRule>                     replaceOrAdd(CWorkspaceRule&&);
+        void                                   remove(const SP<CWorkspaceRule>&);
 
         std::optional<CWorkspaceRule>          getWorkspaceRuleFor(PHLWORKSPACE workspace);
         std::string                            getDefaultWorkspaceFor(const Monitor::IMonitorAddressable&);

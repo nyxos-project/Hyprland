@@ -4,6 +4,7 @@
 #include "../desktop/DesktopTypes.hpp"
 #include "../helpers/memory/Memory.hpp"
 #include "../helpers/signal/Signal.hpp"
+#include "../helpers/math/Math.hpp"
 #include "../config/shared/monitor/MonitorRule.hpp"
 
 #include <expected>
@@ -44,8 +45,10 @@ namespace Monitor {
         // what the regions showed when they were merged, so restore can put it back
         std::vector<std::optional<uint32_t>> savedActive;
         size_t                               savedFocus = 0;
-        // which region each workspace was on, by its address
-        std::unordered_map<std::string, size_t> savedHome;
+        // where the pointer was: the mode changes move it to the middle of the screen
+        std::optional<Vector2D>              savedPointer;
+        // which region each workspace was on, by its numbered ID (regions' names repeat)
+        std::unordered_map<uint32_t, size_t> savedHome;
     };
 
     class CVirtualMonitorManager {
@@ -74,6 +77,8 @@ namespace Monitor {
         bool                                      isWorkspaceOwnedBy(const PHLWORKSPACE& workspace, const PHLMONITOR& region) const;
 
         SVirtualGroup*                            groupFor(const PHLMONITOR& monitor) const;
+        // a split host by its connector name; hidden hosts are left out of monitor queries
+        PHLMONITOR                                hostNamed(const std::string& name) const;
         const std::vector<UP<SVirtualGroup>>&     groups() const;
         const std::vector<SVirtualMonitorConfig>& configs() const;
         std::optional<int>                        pendingConfirmSeconds() const;
@@ -101,6 +106,11 @@ namespace Monitor {
         void                                            addWorkspaceRules(SVirtualGroup& group);
         void                                            removeWorkspaceRules(SVirtualGroup& group);
         void                                            onHostGone(const PHLMONITOR& host);
+        // after a restore, until the monitor rule reload it set off has run
+        CHyprSignalListener m_putBackAfterReload;
+        // put remembered workspaces, active workspaces and focus back on a group's regions
+        void putBack(SVirtualGroup& group, const std::unordered_map<uint32_t, size_t>& home, const std::vector<std::optional<uint32_t>>& active, size_t focus,
+                     std::optional<Vector2D> pointer);
         void                                            onWindowFullscreen(const PHLWINDOW& window);
         void                                            onWindowGone(const PHLWINDOW& window);
         void                                            postEvent(const SVirtualGroup& group, const char* state);

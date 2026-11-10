@@ -1188,7 +1188,11 @@ static CA::ActionResult virtualResult(std::expected<void, std::string>&& res) {
 static PHLMONITOR virtualMonitorFromUpval(lua_State* L) {
     if (lua_isnil(L, lua_upvalueindex(1)))
         return Desktop::focusState()->monitor();
-    return State::monitorState()->query().relativeTo(Desktop::focusState()->monitor()).configString(lua_tostring(L, lua_upvalueindex(1))).run();
+    const std::string SELECTOR = lua_tostring(L, lua_upvalueindex(1));
+    if (const auto MON = State::monitorState()->query().relativeTo(Desktop::focusState()->monitor()).configString(SELECTOR).run())
+        return MON;
+    // a split host is hidden from monitor queries, but it is what these dispatchers name
+    return Monitor::virtualMonitors()->hostNamed(SELECTOR);
 }
 
 static int dsp_virtualMerge(lua_State* L) {

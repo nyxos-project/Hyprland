@@ -15,6 +15,7 @@
 #include "../managers/fullscreen/FullscreenController.hpp"
 #include "../notification/NotificationOverlay.hpp"
 #include "../pointer/PointerManager.hpp"
+#include "../pointer/PointerController.hpp"
 #include "../render/Renderer.hpp"
 #include "../state/MonitorLayoutController.hpp"
 #include "../state/MonitorState.hpp"
@@ -390,15 +391,47 @@ void CVirtualMonitorManager::addWorkspaceRules(SVirtualGroup& group) {
 
 void CVirtualMonitorManager::removeWorkspaceRules(SVirtualGroup& group) {
     for (const auto& r : group.rules) {
-        r->setEnabled(false);
+        Config::workspaceRuleMgr()->remove(r);
     }
 
     group.rules.clear();
 }
 
+// Only rules bound to a monitor: Hyprland moves a persistent workspace whose rule names
+// none to the focused monitor, which after a split or restore would pull the first
+// region's workspaces onto whichever region has focus.
+// The lowest-numbered workspace on a monitor, for a region with nothing to show yet.
+static PHLWORKSPACE lowestWorkspaceOn(const PHLMONITOR& mon) {
+    PHLWORKSPACE best;
+    for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
+        const auto ID = ws && ws->m_monitor == mon ? ws->numberedID() : std::nullopt;
+        if (ID && (!best || *ID < *best->numberedID()))
+            best = ws;
+    }
+    return best;
+}
+
+// Moving workspaces between monitors without replacing leaves their visibility as it was,
+// so a region could draw a workspace it doesn't show. Only each monitor's active one is.
+static void syncVisibility(const std::vector<PHLMONITOR>& monitors) {
+    for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
+        if (!ws || ws->type() == ::Workspace::eWorkspaceType::SPECIAL)
+            continue;
+        const auto ON = ws->m_monitor.lock();
+        if (ON && std::ranges::find(monitors, ON) != monitors.end())
+            ws->setVisible(ON->m_activeWorkspace == ws);
+    }
+}
+
 static void ensurePersistentWorkspaces() {
+    std::vector<SP<Config::CWorkspaceRule>> bound;
+    for (const auto& r : Config::workspaceRuleMgr()->getAllWorkspaceRules()) {
+        if (!r->m_monitor.empty())
+            bound.emplace_back(r);
+    }
+
     State::Workspace::placementController()->ensurePersistentWorkspacesPresent(
-        nullptr, [](PHLWORKSPACE ws, PHLMONITOR mon, bool noWarp) { State::Workspace::placementController()->moveWorkspaceToMonitor(ws, mon, noWarp); });
+        bound, nullptr, [](PHLWORKSPACE ws, PHLMONITOR mon, bool noWarp) { State::Workspace::placementController()->moveWorkspaceToMonitor(ws, mon, noWarp); });
 }
 
 std::expected<void, std::string> CVirtualMonitorManager::activate(SVirtualGroup& group) {
@@ -475,15 +508,27 @@ std::expected<void, std::string> CVirtualMonitorManager::activate(SVirtualGroup&
     HOST->m_virtual.regions = group.regions;
     HOST->m_virtual.count   = regions.size();
 
+    // What was on a region before a merge goes back there, wherever creating the regions
+    // left it (Hyprland moves some workspaces to each new monitor); the rest of the host's
+    // goes by ID range.
     for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
-        if (!ws || ws->m_monitor != HOST)
+        if (!ws)
             continue;
 
-        const auto HOME  = group.savedHome.find(ws->addressableName());
-        const auto INDEX = HOME != group.savedHome.end() && HOME->second < regions.size() ? HOME->second : regionForWorkspace(group, ws);
-        State::Workspace::placementController()->moveWorkspaceToMonitor(ws, regions[INDEX], true, false, false);
+        const auto ID     = ws->numberedID();
+        const auto HOME   = ID ? group.savedHome.find(*ID) : group.savedHome.end();
+        const bool SAVED  = HOME != group.savedHome.end() && HOME->second < regions.size();
+        const auto ON     = ws->m_monitor.lock();
+        const bool OURS   = ON == HOST || std::ranges::find(regions, ON) != regions.end();
+        if (!OURS || (!SAVED && ON != HOST))
+            continue;
+
+        const auto TARGET = regions[SAVED ? HOME->second : regionForWorkspace(group, ws)];
+        if (ON != TARGET)
+            State::Workspace::placementController()->moveWorkspaceToMonitor(ws, TARGET, true, false, false);
     }
     HOST->m_activeWorkspace.reset();
+    const auto HOME_COPY = std::move(group.savedHome);
     group.savedHome.clear();
 
     for (size_t i = 0; i < regions.size(); ++i) {
@@ -495,25 +540,53 @@ std::expected<void, std::string> CVirtualMonitorManager::activate(SVirtualGroup&
             // an empty workspace may have been cleaned up while merged; bring it back where it was
             if (!target)
                 target = State::Workspace::state()->createNumbered(ID, regions[i]);
-        } else if (i == 0)
+        } else if (HOST_ACTIVE && HOST_ACTIVE->m_monitor == regions[i])
             target = HOST_ACTIVE;
+        else if (!regions[i]->m_activeWorkspace || regions[i]->m_activeWorkspace->m_monitor != regions[i])
+            target = lowestWorkspaceOn(regions[i]);
 
         if (target && target->m_monitor == regions[i] && regions[i]->m_activeWorkspace != target)
             regions[i]->changeWorkspace(target, false, true, true);
     }
+    syncVisibility(regions);
 
     if (HOST_SPECIAL && HOST_SPECIAL->m_monitor == regions.front())
         regions.front()->setSpecialWorkspace(HOST_SPECIAL, true);
 
     if (HOST_FOCUSED || !Desktop::focusState()->monitor()) {
-        auto focus = State::monitorState()->query().vec(Pointer::mgr()->position()).run();
-        if (!focus || !focus->isVirtualRegion() || focus->m_virtual.host != HOST)
+        // after a merge, back to the region that had focus; on a fresh split, the one under the pointer
+        PHLMONITOR focus;
+        if (!group.savedActive.empty())
             focus = regions[std::min(group.savedFocus, regions.size() - 1)];
+        else {
+            focus = State::monitorState()->query().vec(Pointer::mgr()->position()).run();
+            if (!focus || !focus->isVirtualRegion() || focus->m_virtual.host != HOST)
+                focus = regions.front();
+        }
         Desktop::focusState()->rawMonitorFocus(focus);
+    }
+
+    // Creating the regions schedules a monitor rule reload (run before the next frame),
+    // and its persistent workspace pass moves workspaces whose rule names no monitor to
+    // the focused region. After a restore, put everything back once more when it has run.
+    if (!group.savedActive.empty()) {
+        const auto PUT = [this, host = group.hostName, home = HOME_COPY, active = group.savedActive, focus = group.savedFocus, pointer = group.savedPointer] {
+            const auto IT = std::ranges::find_if(m_groups, [&host](const auto& g) { return g->hostName == host; });
+            if (IT != m_groups.end() && !(*IT)->merged && !(*IT)->regions.empty())
+                putBack(**IT, home, active, focus, pointer);
+        };
+        m_putBackAfterReload = Config::monitorRuleMgr()->m_events.stateReloaded.listen([this, PUT] {
+            m_putBackAfterReload.reset();
+            PUT();
+        });
+        // and soon, in case no reload comes
+        if (g_pEventLoopManager)
+            g_pEventLoopManager->doLater(PUT);
     }
 
     group.savedActive.clear();
     group.savedFocus = 0;
+    group.savedPointer.reset();
 
     HOST->m_events.modeChanged.emit();
     group.hostModeChanged = HOST->m_events.modeChanged.listen([this] { scheduleReconcile(); });
@@ -555,13 +628,14 @@ void CVirtualMonitorManager::dissolve(SVirtualGroup& group, bool forMerge) {
         for (const auto& r : regions) {
             group.savedActive.emplace_back(r->m_activeWorkspace ? r->m_activeWorkspace->numberedID() : std::nullopt);
         }
-        group.savedFocus = FOCUS_INSIDE ? sc<size_t>(std::ranges::distance(regions.begin(), FOCUSED_IT)) : 0;
+        group.savedFocus   = FOCUS_INSIDE ? sc<size_t>(std::ranges::distance(regions.begin(), FOCUSED_IT)) : 0;
+        group.savedPointer = Pointer::mgr()->position();
 
         group.savedHome.clear();
         for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
             const auto ON = ws ? std::ranges::find(regions, ws->m_monitor.lock()) : regions.end();
-            if (ON != regions.end())
-                group.savedHome[ws->addressableName()] = sc<size_t>(std::ranges::distance(regions.begin(), ON));
+            if (const auto ID = ON != regions.end() ? ws->numberedID() : std::nullopt)
+                group.savedHome[*ID] = sc<size_t>(std::ranges::distance(regions.begin(), ON));
         }
     }
 
@@ -588,6 +662,7 @@ void CVirtualMonitorManager::dissolve(SVirtualGroup& group, bool forMerge) {
 
         if (SHOW && SHOW->m_monitor == HOST)
             HOST->changeWorkspace(SHOW, false, true, true);
+        syncVisibility({HOST});
 
         if (FOCUS_INSIDE || !Desktop::focusState()->monitor())
             Desktop::focusState()->rawMonitorFocus(HOST);
@@ -807,6 +882,54 @@ SVirtualGroup* CVirtualMonitorManager::groupFor(const PHLMONITOR& monitor) const
     for (const auto& g : m_groups) {
         if (g->host == monitor || std::ranges::any_of(g->regions, [&monitor](const auto& r) { return r == monitor; }))
             return g.get();
+    }
+
+    return nullptr;
+}
+
+void CVirtualMonitorManager::putBack(SVirtualGroup& group, const std::unordered_map<uint32_t, size_t>& home, const std::vector<std::optional<uint32_t>>& active,
+                                     size_t focus, std::optional<Vector2D> pointer) {
+    std::vector<PHLMONITOR> regions;
+    for (const auto& r : group.regions) {
+        const auto R = r.lock();
+        if (!R)
+            return;
+        regions.emplace_back(R);
+    }
+
+    for (const auto& ws : State::Workspace::state()->workspacesCopy()) {
+        const auto ID   = ws ? ws->numberedID() : std::nullopt;
+        const auto HOME = ID ? home.find(*ID) : home.end();
+        if (HOME == home.end() || HOME->second >= regions.size())
+            continue;
+
+        const auto ON = ws->m_monitor.lock();
+        if (std::ranges::find(regions, ON) != regions.end() && ON != regions[HOME->second])
+            State::Workspace::placementController()->moveWorkspaceToMonitor(ws, regions[HOME->second], true, false, false);
+    }
+
+    for (size_t i = 0; i < regions.size() && i < active.size(); ++i) {
+        if (!active[i])
+            continue;
+        const auto TARGET = State::Workspace::state()->query().numbered(::Workspace::SWorkspaceNumberedID{*active[i]}).run();
+        if (TARGET && TARGET->m_monitor == regions[i] && regions[i]->m_activeWorkspace != TARGET)
+            regions[i]->changeWorkspace(TARGET, false, true, true);
+    }
+    syncVisibility(regions);
+
+    const auto FOCUS = regions[std::min(focus, regions.size() - 1)];
+    // the pointer goes back where it was if that is still on the focused region, else to its middle
+    if (pointer && State::monitorState()->query().vec(*pointer).run() == FOCUS)
+        Pointer::pointerController()->warpTo(*pointer, true);
+    else
+        Pointer::pointerController()->warpTo(FOCUS->middle(), true);
+    Desktop::focusState()->rawMonitorFocus(FOCUS);
+}
+
+PHLMONITOR CVirtualMonitorManager::hostNamed(const std::string& name) const {
+    for (const auto& g : m_groups) {
+        if (g->hostName == name)
+            return g->host.lock();
     }
 
     return nullptr;
