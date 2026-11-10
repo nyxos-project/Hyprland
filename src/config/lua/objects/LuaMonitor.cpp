@@ -163,7 +163,28 @@ static int monitorIndex(lua_State* L) {
         lua_pushboolean(L, mon->m_vrrActive);
     else if (key == "is_mirror")
         lua_pushboolean(L, mon->isMirror());
-    else if (key == "mirrors") {
+    else if (key == "is_virtual")
+        lua_pushboolean(L, mon->isVirtualRegion());
+    else if (key == "virtual_host") {
+        if (const auto HOST = mon->m_virtual.host.lock())
+            Objects::CLuaMonitor::push(L, HOST);
+        else
+            lua_pushnil(L);
+    } else if (key == "virtual_index")
+        lua_pushinteger(L, sc<lua_Integer>(mon->m_virtual.index));
+    else if (key == "virtual_regions") {
+        lua_newtable(L);
+
+        int i = 1;
+        for (const auto& regionRef : mon->m_virtual.regions) {
+            const auto REGION = regionRef.lock();
+            if (!REGION)
+                continue;
+
+            Objects::CLuaMonitor::push(L, REGION);
+            lua_rawseti(L, -2, i++);
+        }
+    } else if (key == "mirrors") {
         lua_newtable(L);
 
         int i = 1;

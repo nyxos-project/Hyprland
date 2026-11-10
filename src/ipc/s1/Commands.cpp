@@ -36,6 +36,7 @@ using namespace Hyprutils::String;
 #include "../../config/shared/inotify/ConfigWatcher.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../config/shared/monitor/MonitorRuleManager.hpp"
+#include "../../output/VirtualMonitorManager.hpp"
 #include "../../config/shared/animation/AnimationTree.hpp"
 #include "../../config/supplementary/jeremy/Jeremy.hpp"
 #include "../../config/values/ConfigValues.hpp"
@@ -209,6 +210,60 @@ std::string                                                       CCommandFormat
     return format == eHyprCtlOutputFormat::FORMAT_JSON ? std::format("[{}]", reasonStr) : reasonStr;
 }
 
+static std::string virtualMonitorData(const PHLMONITOR& m, eHyprCtlOutputFormat format) {
+    const bool JSON = format == eHyprCtlOutputFormat::FORMAT_JSON;
+
+    if (m->isVirtualRegion()) {
+        const auto HOST = m->m_virtual.host.lock();
+        if (!HOST)
+            return JSON ? "null" : "none";
+
+        if (!JSON)
+            return std::format("region {} of {} on {}, x offset {} px, workspaces from {}", m->m_virtual.index, m->m_virtual.count, HOST->m_name,
+                               sc<int>(m->m_virtual.pixelOffset.x), m->m_virtual.workspaceBase + 1);
+
+        return std::format(R"#({{
+        "role": "region",
+        "host": "{}",
+        "hostId": {},
+        "hostDescription": "{}",
+        "hostMake": "{}",
+        "hostModel": "{}",
+        "hostSerial": "{}",
+        "index": {},
+        "count": {},
+        "pixelOffset": {},
+        "workspaceBase": {}
+    }})#",
+                           escapeJSONStrings(HOST->m_name), HOST->m_id, escapeJSONStrings(HOST->m_shortDescription), escapeJSONStrings(HOST->m_output->make),
+                           escapeJSONStrings(HOST->m_output->model), escapeJSONStrings(HOST->m_output->serial), m->m_virtual.index, m->m_virtual.count,
+                           sc<int>(m->m_virtual.pixelOffset.x), m->m_virtual.workspaceBase);
+    }
+
+    if (m->isVirtualHost()) {
+        std::string regions;
+        for (const auto& r : m->m_virtual.regions) {
+            const auto R = r.lock();
+            if (!R)
+                continue;
+            if (!regions.empty())
+                regions += JSON ? ", " : " ";
+            regions += JSON ? std::format("\"{}\"", escapeJSONStrings(R->m_name)) : R->m_name;
+        }
+
+        if (!JSON)
+            return std::format("host of {}", regions);
+
+        return std::format(R"#({{
+        "role": "host",
+        "regions": [{}]
+    }})#",
+                           regions);
+    }
+
+    return JSON ? "null" : "none";
+}
+
 std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat format) {
     std::string result;
     if (!m->m_output || m->m_id == -1)
@@ -259,6 +314,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
     "disabled": {},
     "currentFormat": "{}",
     "mirrorOf": "{}",
+    "virtual": {},
     "availableModes": [{}],
     "colorManagementPreset": "{}",
     "sdrBrightness": {},
@@ -314,6 +370,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             tf(!m->m_enabled),
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",
+            virtualMonitorData(m, format),
             availableModesForOutput(m, format), (NCMType::toString(m->m_cmType)), (m->m_sdrBrightness), (m->m_sdrSaturation), (m->m_sdrMinLuminance), (m->m_sdrMaxLuminance),
             tf(!m->shouldUseSoftwareCursors()),
             StringUtils::backendStr(m->m_output->getBackend()->type()),
@@ -329,7 +386,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             "dpmsStatus: {}\n\tvrr: {}\n\tsolitary: {:x}\n\tsolitaryBlockedBy: {}\n\tactivelyTearing: {}\n\ttearingBlockedBy: {}\n\tdirectScanoutTo: "
             "{:x}\n\tdirectScanoutBlockedBy: {}\n\tdisabled: "
             "{}\n\tcurrentFormat: {}\n\tmirrorOf: "
-            "{}\n\tavailableModes: {}\n\tcolorManagementPreset: {}\n\tsdrBrightness: {}\n\tsdrSaturation: {}\n\tsdrMinLuminance: {}\n\tsdrMaxLuminance: "
+            "{}\n\tvirtual: {}\n\tavailableModes: {}\n\tcolorManagementPreset: {}\n\tsdrBrightness: {}\n\tsdrSaturation: {}\n\tsdrMinLuminance: {}\n\tsdrMaxLuminance: "
             "{}\n\thardwareCursorsInUse: {}\n\thardwareDetails:\n\t\tbackend: {}\n\t\thdr: {}\n\t\tchroma: {}\n\t\tbt2020: {}\n\t\tvrrCapable: {}\n\n",
             m->m_name,
             m->m_id,
@@ -363,6 +420,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             !m->m_enabled,
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",
+            virtualMonitorData(m, format),
             availableModesForOutput(m, format), (NCMType::toString(m->m_cmType)), (m->m_sdrBrightness), (m->m_sdrSaturation), (m->m_sdrMinLuminance), (m->m_sdrMaxLuminance),
             (!m->shouldUseSoftwareCursors()),
             StringUtils::backendStr(m->m_output->getBackend()->type()),
@@ -1876,6 +1934,9 @@ static std::string dispatchOutput(eHyprCtlOutputFormat format, std::string reque
         if (!PMONITOR->m_createdByUser)
             return "cannot remove a real display. Use the monitor keyword.";
 
+        if (PMONITOR->isVirtualRegion())
+            return "this is a virtual monitor; change or disable its hl.virtual_monitor instead.";
+
         PMONITOR->m_output->destroy();
     }
 
@@ -2071,6 +2132,10 @@ static std::string reloadShaders(eHyprCtlOutputFormat format, std::string reques
         return format == FORMAT_JSON ? "{\"ok\": false}" : "error";
 }
 
+static std::string virtualMonitorsRequest(eHyprCtlOutputFormat format, std::string request) {
+    return format == eHyprCtlOutputFormat::FORMAT_JSON ? Monitor::virtualMonitors()->toJSON() : Monitor::virtualMonitors()->toText();
+}
+
 template <typename F>
 static SCommand legacyCommand(std::string name, eCommandMatch match, F handler) {
     return SCommand{
@@ -2082,6 +2147,7 @@ static SCommand legacyCommand(std::string name, eCommandMatch match, F handler) 
 
 void IPC::Socket1::registerBuiltinCommands(CSocket1& socket) {
     socket.registerCommand(legacyCommand("workspaces", COMMAND_MATCH_EXACT, workspacesRequest));
+    socket.registerCommand(legacyCommand("virtualmonitors", COMMAND_MATCH_EXACT, virtualMonitorsRequest));
     socket.registerCommand(legacyCommand("workspacerules", COMMAND_MATCH_EXACT, workspaceRulesRequest));
     socket.registerCommand(legacyCommand("activeworkspace", COMMAND_MATCH_EXACT, activeWorkspaceRequest));
     socket.registerCommand(SCommand{.name = "clients", .match = COMMAND_MATCH_EXACT, .handler = [](const SRequest& request) { return clientsRequest(request); }});
