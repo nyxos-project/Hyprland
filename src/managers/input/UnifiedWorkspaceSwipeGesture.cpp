@@ -4,6 +4,7 @@
 #include "../../state/WorkspaceState.hpp"
 #include "../../state/workspace/Resolver.hpp"
 #include "../../desktop/state/FocusState.hpp"
+#include "../../output/VirtualMonitorManager.hpp"
 #include "../../render/Renderer.hpp"
 #include "InputManager.hpp"
 #include "../../layout/space/Space.hpp"
@@ -168,6 +169,7 @@ void CUnifiedWorkspaceSwipeGesture::cancel() {
 }
 
 void CUnifiedWorkspaceSwipeGesture::begin() {
+    Monitor::virtualMonitors()->retargetForWorkspaceAction();
     begin(Desktop::focusState()->monitor());
 }
 

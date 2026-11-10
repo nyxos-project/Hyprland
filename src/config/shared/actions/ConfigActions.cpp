@@ -2,6 +2,7 @@
 #include "../parserUtils/ParserUtils.hpp"
 #include "../../ConfigManager.hpp"
 #include "../../../desktop/state/FocusState.hpp"
+#include "../../../output/VirtualMonitorManager.hpp"
 #include "../../../desktop/state/GlobalWindowController.hpp"
 #include "../../../desktop/state/WindowState.hpp"
 #include "../../../desktop/view/window/Window.hpp"
@@ -170,7 +171,9 @@ static PHLWORKSPACE findOrCreateWorkspace(const std::string& args, bool isEmpty)
 static PHLWORKSPACE resolveWorkspaceForChange(const std::string& args) {
     static auto PBACKANDFORTH = CConfigValue<Config::INTEGER>("binds:workspace_back_and_forth");
 
-    const auto  PMONITOR = Desktop::focusState()->monitor();
+    Monitor::virtualMonitors()->retargetForWorkspaceAction();
+
+    const auto PMONITOR = Desktop::focusState()->monitor();
     if (!PMONITOR)
         return nullptr;
 
@@ -439,6 +442,7 @@ ActionResult Actions::moveToWorkspace(PHLWORKSPACE ws, bool silent, std::optiona
 }
 
 ActionResult Actions::moveToWorkspace(const std::string& ws, bool silent, std::optional<PHLWINDOW> w) {
+    Monitor::virtualMonitors()->retargetForWorkspaceAction();
     const auto WORKSPACE = findOrCreateWorkspace(ws, false);
     const auto res       = Actions::moveToWorkspace(WORKSPACE, silent, w);
     if (WORKSPACE)

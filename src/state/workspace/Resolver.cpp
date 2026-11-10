@@ -6,6 +6,7 @@
 #include "../../desktop/history/WorkspaceHistoryTracker.hpp"
 #include "../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../MonitorState.hpp"
+#include "../../output/VirtualMonitorManager.hpp"
 
 #include <hyprutils/string/Numeric.hpp>
 #include <hyprutils/string/String.hpp>
@@ -198,6 +199,14 @@ State::Workspace::STarget CWorkspaceResolver::getWorkspaceTargetFromString(const
 
         const auto CURRENT = BASEMONITOR->m_activeWorkspace->numberedID();
         return CURRENT && *CURRENT < UINT32_MAX ? numberedTarget(*CURRENT + 1) : State::Workspace::STarget{};
+    }
+
+    // v~N: workspace N of the target virtual monitor, or plain N on any other monitor
+    if (in.size() > 2 && in[0] == 'v' && in[1] == '~' && isNumber(in.substr(2))) {
+        const auto NUMBER = workspaceOffset(in.substr(2));
+        if (!NUMBER || *NUMBER <= 0 || *NUMBER > 99)
+            return {};
+        return numberedTarget(Monitor::virtualMonitors()->workspaceIDFor(BASEMONITOR, sc<uint32_t>(*NUMBER)));
     }
 
     if (in.size() > 2 && in[0] == 'r' && (in[1] == '-' || in[1] == '+' || in[1] == '~') && isNumber(in.substr(2))) {
