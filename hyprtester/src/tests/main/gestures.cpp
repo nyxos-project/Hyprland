@@ -406,20 +406,20 @@ TEST_CASE(workspaceSwipeWrap) {
 
     // Without wrap, the swipe stops at the last workspace.
     OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
-    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 13 (13)");
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "workspace 13 (13)");
 
     OK(getFromSocket("/eval hl.config({ gestures = { workspace_swipe_wrap = 1 } })"));
 
     OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
-    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 11 (11)");
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "workspace 11 (11)");
 
     OK(getFromSocket("/eval hl.plugin.test.gesture('left', 3)"));
-    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 13 (13)");
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "workspace 13 (13)");
 
     // Wrapping wins over creating a new workspace past the last one.
     OK(getFromSocket("/eval hl.config({ gestures = { workspace_swipe_create_new = 1 } })"));
     OK(getFromSocket("/eval hl.plugin.test.gesture('right', 3)"));
-    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "ID 11 (11)");
+    EXPECT_CONTAINS(getFromSocket("/activeworkspace"), "workspace 11 (11)");
 
     OK(getFromSocket("/eval hl.plugin.test.alt(0)"));
     OK(getFromSocket("/output remove HEADLESS-WRAP"));
