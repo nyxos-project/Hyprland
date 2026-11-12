@@ -1013,6 +1013,30 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     return tex;
 }
 
+static std::optional<Vector2D> topLayerSlideOffset(PHLMONITOR pMonitor) {
+    PHLWORKSPACE normal;
+    bool         fullscreen = false;
+
+    for (auto const& ref : State::Workspace::state()->workspaces()) {
+        const auto ws = ref.lock();
+        if (!ws || ws->type() == Workspace::eWorkspaceType::SPECIAL || ws->m_monitor != pMonitor || ws->m_alpha->value() <= 0.F)
+            continue;
+
+        if (ws != pMonitor->m_activeWorkspace && !ws->m_forceRendering && !ws->m_renderOffset->isBeingAnimated())
+            continue;
+
+        if (Fullscreen::controller()->getFullscreenModes(ws, true).internal == Fullscreen::FSMODE_FULLSCREEN)
+            fullscreen = true;
+        else if (!normal)
+            normal = ws;
+    }
+
+    if (!fullscreen || !normal)
+        return std::nullopt;
+
+    return normal->m_renderOffset->value();
+}
+
 void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pMonitor, const Time::steady_tp& time, bool popups, bool lockscreen, bool workspaceScene) {
     if (!pLayer)
         return;
@@ -1020,7 +1044,14 @@ void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pM
     if (!ctx.shouldRenderContent(pLayer->m_ruleApplicator->noScreenShare().valueOrDefault()))
         return;
 
-    if (!pLayer->mapped() || (!workspaceScene && !pLayer->acceptsInput()) || !pLayer->alphaNonZero())
+    // While a workspace with a true fullscreen window slides next to one without, the top
+    // layers that fullscreen hides move with the one without, at full opacity.
+    std::optional<Vector2D> slideOffset;
+    if (pLayer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && !(pLayer->m_flags & Desktop::View::LAYER_FLAG_ABOVE_FULLSCREEN) && !workspaceScene && !lockscreen &&
+        !ctx.m_renderingSnapshot)
+        slideOffset = topLayerSlideOffset(pMonitor);
+
+    if (!pLayer->mapped() || (!workspaceScene && !pLayer->acceptsInput()) || (!slideOffset && !pLayer->alphaNonZero()))
         return;
 
     // skip rendering based on abovelock rule and make sure to not render abovelock layers twice
@@ -1039,11 +1070,11 @@ void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pM
 
     TRACY_GPU_ZONE("RenderLayer");
 
-    const auto                       REALPOS = pLayer->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto                       REALPOS = pLayer->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + slideOffset.value_or(Vector2D{});
     const auto                       REALSIZ = pLayer->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
     CSurfacePassElement::SRenderData renderdata = {pMonitor, time, REALPOS};
-    renderdata.fadeAlpha                        = pLayer->alpha()[LS_ALPHA_FADE]->value();
+    renderdata.fadeAlpha                        = slideOffset ? 1.F : pLayer->alpha()[LS_ALPHA_FADE]->value();
     renderdata.blur                             = !ctx.m_renderingSnapshot && pLayer->shouldBlur();
     renderdata.surface                          = pLayer->wlSurface()->resource();
     renderdata.decorate                         = false;
