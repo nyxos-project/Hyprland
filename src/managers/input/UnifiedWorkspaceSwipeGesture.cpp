@@ -27,15 +27,6 @@ void CUnifiedWorkspaceSwipeGesture::begin() {
     m_monitor        = Desktop::focusState()->monitor();
     m_avgSpeed       = 0;
     m_speedPoints    = 0;
-
-    const auto FSWINDOW         = Fullscreen::controller()->getFullscreenWindow(PWORKSPACE);
-    const auto INTERNAL_FS_MODE = FSWINDOW ? Fullscreen::controller()->getFullscreenModes(FSWINDOW).internal : Fullscreen::FSMODE_NONE;
-
-    if (INTERNAL_FS_MODE == Fullscreen::FSMODE_FULLSCREEN) {
-        for (auto const& ls : Desktop::focusState()->monitor()->m_layerSurfaceLayers[2]) {
-            *ls->alpha()[Desktop::View::LS_ALPHA_FADE] = 1.F;
-        }
-    }
 }
 
 void CUnifiedWorkspaceSwipeGesture::update(double delta) {
@@ -327,8 +318,10 @@ void CUnifiedWorkspaceSwipeGesture::end() {
             (!FSWINDOW || !Fullscreen::controller()->layoutManagedFS(FSWINDOW) ||
              (pSwitchedTo->m_space && pSwitchedTo->m_space->algorithm() && Fullscreen::controller()->hasFullscreen(pSwitchedTo, true)));
 
+        // During the swipe, top layers hidden by fullscreen moved with the workspace without a
+        // fullscreen window (see renderLayer), so a fade now would show them over the app.
         for (auto const& ls : Desktop::focusState()->monitor()->m_layerSurfaceLayers[2]) {
-            *ls->alpha()[Desktop::View::LS_ALPHA_FADE] = HIDE ? 0.F : 1.F;
+            ls->alpha()[Desktop::View::LS_ALPHA_FADE]->setValueAndWarp(HIDE ? 0.F : 1.F);
         }
     }
 }

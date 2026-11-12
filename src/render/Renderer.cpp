@@ -932,6 +932,30 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     return tex;
 }
 
+static std::optional<Vector2D> topLayerSlideOffset(PHLMONITOR pMonitor) {
+    PHLWORKSPACE normal;
+    bool         fullscreen = false;
+
+    for (auto const& ref : State::workspaceState()->workspaces()) {
+        const auto ws = ref.lock();
+        if (!ws || ws->m_isSpecialWorkspace || ws->m_monitor != pMonitor || ws->m_alpha->value() <= 0.F)
+            continue;
+
+        if (ws->m_id != pMonitor->activeWorkspaceID() && !ws->m_forceRendering && !ws->m_renderOffset->isBeingAnimated())
+            continue;
+
+        if (Fullscreen::controller()->getFullscreenModes(ws, true).internal == Fullscreen::FSMODE_FULLSCREEN)
+            fullscreen = true;
+        else if (!normal)
+            normal = ws;
+    }
+
+    if (!fullscreen || !normal)
+        return std::nullopt;
+
+    return normal->m_renderOffset->value();
+}
+
 void IHyprRenderer::renderLayer(PHLLS pLayer, PHLMONITOR pMonitor, const Time::steady_tp& time, bool popups, bool lockscreen) {
     if (!pLayer)
         return;
@@ -955,11 +979,17 @@ void IHyprRenderer::renderLayer(PHLLS pLayer, PHLMONITOR pMonitor, const Time::s
 
     TRACY_GPU_ZONE("RenderLayer");
 
-    const auto                       REALPOS = pLayer->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    // While a workspace with a true fullscreen window slides next to one without, the top
+    // layers that fullscreen hides move with the one without, at full opacity.
+    std::optional<Vector2D> slideOffset;
+    if (pLayer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && !pLayer->m_aboveFullscreen && !m_bRenderingSnapshot && !lockscreen)
+        slideOffset = topLayerSlideOffset(pMonitor);
+
+    const auto                       REALPOS = pLayer->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + slideOffset.value_or(Vector2D{});
     const auto                       REALSIZ = pLayer->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
     CSurfacePassElement::SRenderData renderdata = {pMonitor, time, REALPOS};
-    renderdata.fadeAlpha                        = pLayer->alpha()[LS_ALPHA_FADE]->value();
+    renderdata.fadeAlpha                        = slideOffset ? 1.F : pLayer->alpha()[LS_ALPHA_FADE]->value();
     renderdata.blur                             = shouldBlur(pLayer);
     renderdata.surface                          = pLayer->wlSurface()->resource();
     renderdata.decorate                         = false;
