@@ -1013,7 +1013,7 @@ SP<ITexture> IHyprRenderer::createTexture(const SP<Aquamarine::IBuffer> buffer, 
     return tex;
 }
 
-static std::optional<Vector2D> topLayerSlideOffset(PHLMONITOR pMonitor) {
+static std::optional<Vector2D> computeTopLayerSlideOffset(PHLMONITOR pMonitor) {
     PHLWORKSPACE normal;
     bool         fullscreen = false;
 
@@ -1037,6 +1037,25 @@ static std::optional<Vector2D> topLayerSlideOffset(PHLMONITOR pMonitor) {
     return normal->m_renderOffset->value();
 }
 
+// Worked out once per monitor per frame (every top layer asks), and not at all unless
+// misc:fullscreen_own_workspace is on.
+static std::optional<Vector2D> topLayerSlideOffset(PHLMONITOR pMonitor, const Time::steady_tp& time) {
+    static auto PENABLED = CConfigValue<Config::INTEGER>("misc:fullscreen_own_workspace");
+    if (!*PENABLED)
+        return std::nullopt;
+
+    static PHLMONITORREF            lastMonitor;
+    static Time::steady_tp          lastTime;
+    static std::optional<Vector2D>  lastOffset;
+    if (lastMonitor.lock() == pMonitor && lastTime == time)
+        return lastOffset;
+
+    lastMonitor = pMonitor;
+    lastTime    = time;
+    lastOffset  = computeTopLayerSlideOffset(pMonitor);
+    return lastOffset;
+}
+
 void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pMonitor, const Time::steady_tp& time, bool popups, bool lockscreen, bool workspaceScene) {
     if (!pLayer)
         return;
@@ -1049,7 +1068,7 @@ void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pM
     std::optional<Vector2D> slideOffset;
     if (pLayer->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && !(pLayer->m_flags & Desktop::View::LAYER_FLAG_ABOVE_FULLSCREEN) && !workspaceScene && !lockscreen &&
         !ctx.m_renderingSnapshot)
-        slideOffset = topLayerSlideOffset(pMonitor);
+        slideOffset = topLayerSlideOffset(pMonitor, time);
 
     if (!pLayer->mapped() || (!workspaceScene && !pLayer->acceptsInput()) || (!slideOffset && !pLayer->alphaNonZero()))
         return;
@@ -1074,7 +1093,9 @@ void IHyprRenderer::renderLayer(CRenderContext& ctx, PHLLS pLayer, PHLMONITOR pM
     const auto                       REALSIZ = pLayer->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
     CSurfacePassElement::SRenderData renderdata = {pMonitor, time, REALPOS};
-    renderdata.fadeAlpha                        = slideOffset ? 1.F : pLayer->alpha()[LS_ALPHA_FADE]->value();
+    // Full opacity while sliding, unless the layer is fading out on its own (closing).
+    const auto& FADE                            = pLayer->alpha()[LS_ALPHA_FADE];
+    renderdata.fadeAlpha                        = slideOffset && FADE->goal() >= 1.F ? 1.F : FADE->value();
     renderdata.blur                             = !ctx.m_renderingSnapshot && pLayer->shouldBlur();
     renderdata.surface                          = pLayer->wlSurface()->resource();
     renderdata.decorate                         = false;
